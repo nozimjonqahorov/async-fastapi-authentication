@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import select
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from db import get_db
 from user.schemas import RefreshTokenRequest
-from user.models import User
-from user.schemas import UserCreate, Token, ChangeProfileSchema, UserResponse, PasswordChangeSchema
+from user.models import User, BlackList
+from user.schemas import UserCreate, Token, ChangeProfileSchema, UserResponse, PasswordChangeSchema, LogoutSchema
+from user.permissions import is_authenticated
 from user.security import (
     hash_password,
     verify_password,
@@ -76,8 +78,18 @@ async def login(
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh_access_token(data: RefreshTokenRequest):
+async def refresh_access_token(data: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
     payload = decode_token(str(data.refresh_token))
+
+    result = await db.execute(select(BlackList).where(BlackList.refresh == data.refresh_token))
+    token = result.scalar_one_or_none()
+
+    if token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token yaroqsiz yoki muddati o'tgan",
+        )
+
     if payload is None or payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -149,4 +161,31 @@ async def change_password(new_data : PasswordChangeSchema, current_user : User =
     await db.refresh(current_user)
     return {
         "msg":"Parol uzgartirildi"
+    }
+
+
+@router.post('/logout')
+async def logout(data: LogoutSchema, db: AsyncSession = Depends(get_db), _: None = Depends(is_authenticated)):
+    payload = decode_token(data.refresh)
+
+    type = payload.get('type')
+    if type is None or type != 'refresh':
+        raise HTTPException(detail='Refresh is not valid', status_code=status.HTTP_400_BAD_REQUEST)
+
+    refresh_token = await db.execute(select(BlackList).where(BlackList.refresh == data.refresh))
+    token = refresh_token.scalar_one_or_none()
+
+    if token:
+        raise HTTPException(detail='Refresh is not valid', status_code=status.HTTP_400_BAD_REQUEST)
+
+    refresh = BlackList(refresh=data.refresh, exp=datetime.fromtimestamp(payload.get('exp')))
+
+    db.add(refresh)
+
+    await db.commit()
+    await db.refresh(refresh)
+
+    return {
+        'msg': 'Logout',
+        'status': status.HTTP_200_OK
     }

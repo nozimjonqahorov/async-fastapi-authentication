@@ -44,3 +44,5 @@ class PasswordChangeSchema(BaseModel):
 
     
 
+class LogoutSchema(BaseModel):
+    refresh : str
