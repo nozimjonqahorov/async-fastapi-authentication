@@ -178,7 +178,7 @@ async def logout(data: LogoutSchema, db: AsyncSession = Depends(get_db), _: None
     if token:
         raise HTTPException(detail='Refresh is not valid', status_code=status.HTTP_400_BAD_REQUEST)
 
-    refresh = BlackList(refresh=data.refresh, exp=datetime.fromtimestamp(payload.get('exp')))
+    refresh = BlackList(refresh=data.refresh, exp_time=datetime.fromtimestamp(payload.get('exp')))
 
     db.add(refresh)
 
